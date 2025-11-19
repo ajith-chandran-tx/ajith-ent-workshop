@@ -27,7 +27,6 @@ type Query {
     )
 }
 
-
 type Order @key(fields: "id") {
   id: ID!
   buyer: User! @requiresScopes(scopes: [["order:buyer"]])
