@@ -49,4 +49,4 @@ persisted_queries:
     enabled: true
     require_id: true
 apq:
-  enabled: false
+  enabled: true
