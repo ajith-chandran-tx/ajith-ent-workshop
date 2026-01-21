@@ -30,13 +30,6 @@ jobs:
 
           redact_key() {
             local k="$1"
-            # Common secret-ish patterns + your known secrets
-            if [[ "$k" =~ (SECRET|TOKEN|PASSWORD|PASS|KEY|PRIVATE|CREDENTIAL|AUTH) ]] \
-               || [[ "$k" == "APOLLO_KEY" ]] \
-               || [[ "$k" == "APOLLO_GRAPH_REF" ]] \
-               || [[ "$k" =~ ^S[0-9]+_HEADER_ ]]; then
-              return 0
-            fi
             return 1
           }
 
