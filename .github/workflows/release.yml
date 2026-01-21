@@ -28,37 +28,119 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Scanning environment for S{n}_ groups..."
-          GROUPS=$(env | grep -Eo '^S[0-9]+_NAME=' | sed 's/_NAME=.*//' | sort -u || true)
+          echo "Scanning environment for S{n}_ groups (keys only)..."
+
+          # IMPORTANT:
+          # GitHub Actions secrets can't be enumerated (you can't list secret *names* at runtime).
+          # The only way to "scan secrets" is to ensure they are mapped into environment variables
+          # (e.g., via --env-file/--secret-file in act or env:/secrets: in GitHub Actions).
+
+          # Discover only keys that look like S1_NAME, S2_NAME, ... (note: S0_* is treated as invalid)
+          MATCHED_NAME_KEYS="$(printenv | cut -d= -f1 | grep -E '^S[1-9][0-9]*_NAME$' || true)"
+          if [ -n "${MATCHED_NAME_KEYS:-}" ]; then
+            echo "Matched *_NAME keys:"
+            printf '%s\n' "$MATCHED_NAME_KEYS"
+          else
+            echo "No S{n}_NAME keys found."
+          fi
+
+          # Build a bash array of group prefixes (S1, S2, ...) from the matched keys.
+          GROUP_ARR=()
+          while IFS= read -r k; do
+            [ -z "${k:-}" ] && continue
+            g="${k%_NAME}"
+            if [[ "$g" =~ ^S[1-9][0-9]*$ ]]; then
+              GROUP_ARR+=("$g")
+            else
+              echo "Skipping invalid group token derived from key '${k}': '${g}'"
+            fi
+          done <<< "$MATCHED_NAME_KEYS"
+
+          if [ ${#GROUP_ARR[@]} -gt 0 ]; then
+            echo "Groups: ${GROUP_ARR[*]}"
+          else
+            echo "Groups: (none)"
+          fi
 
           mkdir -p .tmp-introspected
           : > dynamic_schemas.list
 
-          for G in $GROUPS; do
+          for G in "${GROUP_ARR[@]}"; do
             NAME_VAR="${G}_NAME"
             URL_VAR="${G}_URL"
-            NAME="${!NAME_VAR-}"
-            URL="${!URL_VAR-}"
 
-            if [ -z "${NAME:-}" ] || [ -z "${URL:-}" ]; then
-              echo "Skipping $G because NAME or URL is missing."
+            # Extra safety: only do indirect expansion if the variable name is valid
+            if ! [[ "$NAME_VAR" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || ! [[ "$URL_VAR" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+              echo "Skipping ${G} due to invalid derived variable names: ${NAME_VAR}, ${URL_VAR}"
               continue
             fi
 
-            HEADER_VARS=$(env | grep -E "^${G}_HEADER_" | cut -d= -f1 || true)
-            HEADERS_JOINED=""
-            if [ -n "${HEADER_VARS:-}" ]; then
-              HEADERS_JOINED=$(echo "$HEADER_VARS" | paste -sd, -)
+            NAME="${!NAME_VAR-}"
+            URL="${!URL_VAR-}"
+
+            # Trim accidental CR (common when env files are edited on Windows)
+            NAME="${NAME%$'\r'}"
+            URL="${URL%$'\r'}"
+
+            if [ -z "${NAME:-}" ] || [ -z "${URL:-}" ]; then
+              echo "Skipping ${G} because NAME or URL is missing."
+              continue
             fi
 
-            echo "${NAME}|${URL}|${HEADERS_JOINED}" >> dynamic_schemas.list
+            # Header values must also exist as env vars to be discoverable.
+            # This will pick up both plain env vars and secrets that were mapped into env vars.
+            HEADER_VARS="$(printenv | cut -d= -f1 | grep -E "^${G}_HEADER_" || true)"
+
+            # De-dupe header var names, print discovered header keys for visibility,
+            # and ensure they are set (without printing their values)
+            HEADERS_JOINED=""
+            if [ -n "${HEADER_VARS:-}" ]; then
+              HEADER_VARS="$(printf '%s\n' "$HEADER_VARS" | sed '/^$/d' | sort -u)"
+
+              echo "Discovered header keys for ${G}:"
+              printf '%s\n' "$HEADER_VARS" | sed 's/^/  - /'
+
+              MISSING_HEADER=false
+              while IFS= read -r HV; do
+                [ -z "${HV:-}" ] && continue
+                # Only accept valid variable names for indirect expansion
+                if ! [[ "$HV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                  echo "Ignoring invalid header variable name: ${HV}"
+                  continue
+                fi
+                if [ -z "${!HV-}" ]; then
+                  echo "Header var present but value is NOT set: ${HV}"
+                  MISSING_HEADER=true
+                fi
+              done <<< "$HEADER_VARS"
+
+              if [ "$MISSING_HEADER" = true ]; then
+                echo "Skipping ${G} because one or more header values are missing."
+                echo "Hint: ensure these are available as env vars (in GitHub by mapping secrets into env; in act by using --env-file or -s)."
+                continue
+              fi
+
+              HEADERS_JOINED="$(printf '%s\n' "$HEADER_VARS" | paste -sd, -)"
+            else
+              echo "Discovered header keys for ${G}: (none)"
+            fi
+
+            # Use printf for consistent delimiters
+            printf '%s|%s|%s\n' "$NAME" "$URL" "$HEADERS_JOINED" >> dynamic_schemas.list
           done
 
+          found=false
           if [ -s dynamic_schemas.list ]; then
-            echo "found=true" >> $GITHUB_OUTPUT
-            echo "Dynamic schemas discovered:"
-            cat dynamic_schemas.list
+            found=true
+            echo "Dynamic schemas discovered (showing delimiters as [|]):"
+            sed -e 's/|/[|]/g' dynamic_schemas.list
           else
-            echo "found=false" >> $GITHUB_OUTPUT
             echo "No dynamic schemas discovered."
+          fi
+
+          if [ -n "${GITHUB_OUTPUT:-}" ]; then
+            echo "found=${found}" >> "$GITHUB_OUTPUT"
+          else
+            echo "GITHUB_OUTPUT is not set; skipping outputs write (act local run)."
+            echo "found=${found}"
           fi
