@@ -1,41 +1,47 @@
-name: Audit Dev Environment Secrets
+name: Audit Environment Configuration
 
 on:
   workflow_dispatch:
+    inputs:
+      # 1. NATIVE DROPDOWN: Generates a list of environments from your repo settings
+      environment:
+        description: "Target Environment to Audit"
+        required: true
+        type: environment
 
 jobs:
-  audit-dev-secrets:
+  audit-config:
     runs-on: ubuntu-latest
-    # CRITICAL: This attaches the job to the 'dev' environment.
-    # The 'secrets' context will now automatically include/override
-    # keys defined in the 'dev' environment settings.
-    environment: dev
+    # 2. DYNAMIC BINDING: Binds the job to the selected environment
+    environment: ${{ inputs.environment }}
 
-    # Dump the merged secret context (Repo + Dev Overrides)
     env:
-      RUNTIME_SECRETS_JSON: ${{ toJSON(secrets) }}
+      # Dump contexts to JSON strings for parsing
+      # 'vars' = Plaintext variables (Safe to view values)
+      # 'secrets' = Encrypted secrets (Values masked as ***)
+      VARS_JSON: ${{ toJSON(vars) }}
+      SECRETS_JSON: ${{ toJSON(secrets) }}
 
     steps:
-      - name: Debug - Print Effective Secret Keys for 'dev'
+      - name: Audit - Effective Environment Variables (Non-Secrets)
         shell: bash
         run: |
-          echo "=== Effective Secrets for Environment: dev ==="
-          echo "Note: This list includes both Repository secrets AND Environment secrets."
-          echo "(If a key exists in both, the Environment value takes precedence)."
+          echo "=== Effective Variables for '${{ inputs.environment }}' ==="
+          echo "(Includes merged Repository and Environment variables)"
           echo ""
           
-          # Use jq to extract keys from the JSON dump
-          # We mask values but print the keys.
-          echo "$RUNTIME_SECRETS_JSON" | jq -r 'keys[]' | sort | while read -r key; do
-            echo "Secret Key: $key"
-          done
+          # Use jq to parse the JSON and print Key=Value pairs
+          echo "$VARS_JSON" | jq -r 'to_entries[] | "\(.key) = \(.value)"' | sort
 
-      # OPTIONAL: If you strictly need the list from the Settings UI
-      # You MUST provide a PAT (Personal Access Token) with 'repo' scope.
-      # The default GITHUB_TOKEN cannot perform 'gh secret list'.
-      # - name: Strict Environment Definition (Requires PAT)
-      #   env:
-      #     GH_TOKEN: ${{ secrets.MY_ADMIN_PAT }}
-      #   run: |
-      #     echo "=== Explicit 'dev' Environment Definitions ==="
-      #     gh secret list --env dev
+      - name: Audit - Effective Secret Keys (Names Only)
+        shell: bash
+        run: |
+          echo ""
+          echo "=== Effective Secret Keys for '${{ inputs.environment }}' ==="
+          echo "(Values are strictly masked by GitHub, printing names only)"
+          echo ""
+          
+          # Use jq to extract only the keys (names) from the secrets object
+          echo "$SECRETS_JSON" | jq -r 'keys[]' | sort | while read -r key; do
+            echo "[SECRET] $key"
+          done
