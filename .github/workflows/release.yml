@@ -1,174 +1,41 @@
-name: Validate Schemas And Create Release Branch
+name: Audit Dev Environment Secrets
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Select environment (dev/test/preprod/prod)"
-        required: true
-        default: "dev"
-        type: environment
-
-permissions:
-  contents: write
-  pull-requests: write
 
 jobs:
-  release:
+  audit-dev-secrets:
     runs-on: ubuntu-latest
-    # FIX 1: Link the input to the job's environment context
-    environment: ${{ inputs.environment }}
+    # CRITICAL: This attaches the job to the 'dev' environment.
+    # The 'secrets' context will now automatically include/override
+    # keys defined in the 'dev' environment settings.
+    environment: dev
 
-    # IMPORTANT: GitHub Actions does NOT automatically export secrets as env vars.
-    # If you rely on dynamic discovery (scanning env for S1_*, S2_*), you must
-    # either use Organization Variables (vars context) or explicitly map specific secrets here.
-    # env:
-    #   S1_NAME: ${{ vars.S1_NAME }}
-    #   S1_HEADER_AUTH: ${{ secrets.S1_HEADER_AUTH }}
+    # Dump the merged secret context (Repo + Dev Overrides)
+    env:
+      RUNTIME_SECRETS_JSON: ${{ toJSON(secrets) }}
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Debug - print safe env vars
+      - name: Debug - Print Effective Secret Keys for 'dev'
         shell: bash
         run: |
-          set -euo pipefail
-
-          # FIX 2: Removed invalid 'secrets' command.
-          # FIX 3: Implemented actual redaction logic.
-
-          redact_key() {
-            local k="$1"
-            # Regex for sensitive keys
-            if [[ "$k" =~ (SECRET|TOKEN|KEY|PASSWORD|AUTH|CREDENTIAL) ]]; then
-              return 0 # true, should redact
-            fi
-            return 1 # false
-          }
-
-          echo "=== Environment Variables ==="
-          while IFS= read -r k; do
-            # Skip empty keys
-            [ -z "$k" ] && continue
-            
-            v="${!k-}"
-            
-            if redact_key "$k"; then
-              printf '%s=*** (redacted)\n' "$k"
-            else
-              printf '%s=%s\n' "$k" "$v"
-            fi
-          done < <(compgen -e | sort)
-
-      - name: Discover Dynamic Schemas from Environment
-        id: discover_dynamic
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Scanning environment for S{n}_ groups..."
-
-          # FIX 4: Robust env scanning that handles missing vars gracefully
-          # Note: This ONLY sees variables explicitly mapped to 'env' in the workflow or repo vars.
-          MATCHED_NAME_KEYS="$(printenv | cut -d= -f1 | grep -E '^S[1-9][0-9]*_NAME$' || true)"
+          echo "=== Effective Secrets for Environment: dev ==="
+          echo "Note: This list includes both Repository secrets AND Environment secrets."
+          echo "(If a key exists in both, the Environment value takes precedence)."
+          echo ""
           
-          if [ -n "${MATCHED_NAME_KEYS:-}" ]; then
-            echo "Matched *_NAME keys:"
-            printf '%s\n' "$MATCHED_NAME_KEYS"
-          else
-            echo "No S{n}_NAME keys found. (Did you map them to env?)"
-          fi
-
-          GROUP_ARR=()
-          while IFS= read -r k; do
-            [ -z "${k:-}" ] && continue
-            g="${k%_NAME}"
-            if [[ "$g" =~ ^S[1-9][0-9]*$ ]]; then
-              GROUP_ARR+=("$g")
-            fi
-          done <<< "$MATCHED_NAME_KEYS"
-
-          if [ ${#GROUP_ARR[@]} -gt 0 ]; then
-            echo "Groups found: ${GROUP_ARR[*]}"
-          else
-            echo "Groups found: (none)"
-          fi
-
-          mkdir -p .tmp-introspected
-          : > dynamic_schemas.list
-
-          for G in "${GROUP_ARR[@]}"; do
-            NAME_VAR="${G}_NAME"
-            URL_VAR="${G}_URL"
-
-            # Validate variable names to prevent injection
-            if ! [[ "$NAME_VAR" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || ! [[ "$URL_VAR" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-              echo "Skipping ${G}: invalid variable names."
-              continue
-            fi
-
-            NAME="${!NAME_VAR-}"
-            URL="${!URL_VAR-}"
-
-            # Sanitize windows line endings
-            NAME="${NAME%$'\r'}"
-            URL="${URL%$'\r'}"
-
-            if [ -z "${NAME:-}" ] || [ -z "${URL:-}" ]; then
-              echo "Skipping ${G}: NAME or URL is empty."
-              continue
-            fi
-
-            # Discover headers (must be mapped to env vars to be visible here)
-            HEADER_VARS="$(printenv | cut -d= -f1 | grep -E "^${G}_HEADER_" || true)"
-
-            HEADERS_JOINED=""
-            if [ -n "${HEADER_VARS:-}" ]; then
-              # Sort and unique
-              HEADER_VARS="$(printf '%s\n' "$HEADER_VARS" | sed '/^$/d' | sort -u)"
-
-              echo "Discovered header keys for ${G}:"
-              printf '%s\n' "$HEADER_VARS" | sed 's/^/  - /'
-
-              MISSING_HEADER=false
-              HEADERS_LIST=()
-              
-              while IFS= read -r HV; do
-                [ -z "${HV:-}" ] && continue
-                if ! [[ "$HV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then continue; fi
-                
-                if [ -z "${!HV-}" ]; then
-                  echo "ERROR: ${HV} is present but empty."
-                  MISSING_HEADER=true
-                else
-                  HEADERS_LIST+=("$HV")
-                fi
-              done <<< "$HEADER_VARS"
-
-              if [ "$MISSING_HEADER" = true ]; then
-                echo "Skipping ${G} due to missing header values."
-                continue
-              fi
-
-              # Join headers with comma
-              HEADERS_JOINED="$(IFS=,; echo "${HEADERS_LIST[*]}")"
-            fi
-
-            printf '%s|%s|%s\n' "$NAME" "$URL" "$HEADERS_JOINED" >> dynamic_schemas.list
+          # Use jq to extract keys from the JSON dump
+          # We mask values but print the keys.
+          echo "$RUNTIME_SECRETS_JSON" | jq -r 'keys[]' | sort | while read -r key; do
+            echo "Secret Key: $key"
           done
 
-          found=false
-          if [ -s dynamic_schemas.list ]; then
-            found=true
-            echo "Dynamic schemas discovered:"
-            cat dynamic_schemas.list
-          else
-            echo "No dynamic schemas discovered."
-          fi
-
-          if [ -n "${GITHUB_OUTPUT:-}" ]; then
-            echo "found=${found}" >> "$GITHUB_OUTPUT"
-          fi
+      # OPTIONAL: If you strictly need the list from the Settings UI
+      # You MUST provide a PAT (Personal Access Token) with 'repo' scope.
+      # The default GITHUB_TOKEN cannot perform 'gh secret list'.
+      # - name: Strict Environment Definition (Requires PAT)
+      #   env:
+      #     GH_TOKEN: ${{ secrets.MY_ADMIN_PAT }}
+      #   run: |
+      #     echo "=== Explicit 'dev' Environment Definitions ==="
+      #     gh secret list --env dev
