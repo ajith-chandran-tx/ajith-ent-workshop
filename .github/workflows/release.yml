@@ -8,6 +8,7 @@ on:
         required: true
         default: "dev"
         type: environment
+
 permissions:
   contents: write
   pull-requests: write
@@ -15,7 +16,15 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: dev
+    # FIX 1: Link the input to the job's environment context
+    environment: ${{ inputs.environment }}
+
+    # IMPORTANT: GitHub Actions does NOT automatically export secrets as env vars.
+    # If you rely on dynamic discovery (scanning env for S1_*, S2_*), you must
+    # either use Organization Variables (vars context) or explicitly map specific secrets here.
+    # env:
+    #   S1_NAME: ${{ vars.S1_NAME }}
+    #   S1_HEADER_AUTH: ${{ secrets.S1_HEADER_AUTH }}
 
     steps:
       - name: Checkout Code
@@ -23,22 +32,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Debug - print all env (values) + redact secrets (keys only)
+      - name: Debug - print safe env vars
         shell: bash
         run: |
-          env | sort
-          secrets | sort
           set -euo pipefail
+
+          # FIX 2: Removed invalid 'secrets' command.
+          # FIX 3: Implemented actual redaction logic.
 
           redact_key() {
             local k="$1"
-            return 1
+            # Regex for sensitive keys
+            if [[ "$k" =~ (SECRET|TOKEN|KEY|PASSWORD|AUTH|CREDENTIAL) ]]; then
+              return 0 # true, should redact
+            fi
+            return 1 # false
           }
 
-          # Print keys sorted; for "secret-like" keys, print only the key.
+          echo "=== Environment Variables ==="
           while IFS= read -r k; do
+            # Skip empty keys
+            [ -z "$k" ] && continue
+            
             v="${!k-}"
-            printf '%s=%s\n' "$k" "$v"
+            
+            if redact_key "$k"; then
+              printf '%s=*** (redacted)\n' "$k"
+            else
+              printf '%s=%s\n' "$k" "$v"
+            fi
           done < <(compgen -e | sort)
 
       - name: Discover Dynamic Schemas from Environment
@@ -47,38 +69,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Scanning environment for S{n}_ groups (keys only)..."
+          echo "Scanning environment for S{n}_ groups..."
 
-          # IMPORTANT:
-          # GitHub Actions secrets can't be enumerated (you can't list secret *names* at runtime).
-          # The only way to "scan secrets" is to ensure they are mapped into environment variables
-          # (e.g., via --env-file/--secret-file in act or env:/secrets: in GitHub Actions).
-
-          # Discover only keys that look like S1_NAME, S2_NAME, ... (note: S0_* is treated as invalid)
+          # FIX 4: Robust env scanning that handles missing vars gracefully
+          # Note: This ONLY sees variables explicitly mapped to 'env' in the workflow or repo vars.
           MATCHED_NAME_KEYS="$(printenv | cut -d= -f1 | grep -E '^S[1-9][0-9]*_NAME$' || true)"
+          
           if [ -n "${MATCHED_NAME_KEYS:-}" ]; then
             echo "Matched *_NAME keys:"
             printf '%s\n' "$MATCHED_NAME_KEYS"
           else
-            echo "No S{n}_NAME keys found."
+            echo "No S{n}_NAME keys found. (Did you map them to env?)"
           fi
 
-          # Build a bash array of group prefixes (S1, S2, ...) from the matched keys.
           GROUP_ARR=()
           while IFS= read -r k; do
             [ -z "${k:-}" ] && continue
             g="${k%_NAME}"
             if [[ "$g" =~ ^S[1-9][0-9]*$ ]]; then
               GROUP_ARR+=("$g")
-            else
-              echo "Skipping invalid group token derived from key '${k}': '${g}'"
             fi
           done <<< "$MATCHED_NAME_KEYS"
 
           if [ ${#GROUP_ARR[@]} -gt 0 ]; then
-            echo "Groups: ${GROUP_ARR[*]}"
+            echo "Groups found: ${GROUP_ARR[*]}"
           else
-            echo "Groups: (none)"
+            echo "Groups found: (none)"
           fi
 
           mkdir -p .tmp-introspected
@@ -88,78 +104,71 @@ jobs:
             NAME_VAR="${G}_NAME"
             URL_VAR="${G}_URL"
 
-            # Extra safety: only do indirect expansion if the variable name is valid
+            # Validate variable names to prevent injection
             if ! [[ "$NAME_VAR" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || ! [[ "$URL_VAR" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-              echo "Skipping ${G} due to invalid derived variable names: ${NAME_VAR}, ${URL_VAR}"
+              echo "Skipping ${G}: invalid variable names."
               continue
             fi
 
             NAME="${!NAME_VAR-}"
             URL="${!URL_VAR-}"
 
-            # Trim accidental CR (common when env files are edited on Windows)
+            # Sanitize windows line endings
             NAME="${NAME%$'\r'}"
             URL="${URL%$'\r'}"
 
             if [ -z "${NAME:-}" ] || [ -z "${URL:-}" ]; then
-              echo "Skipping ${G} because NAME or URL is missing."
+              echo "Skipping ${G}: NAME or URL is empty."
               continue
             fi
 
-            # Header values must also exist as env vars to be discoverable.
-            # This will pick up both plain env vars and secrets that were mapped into env vars.
+            # Discover headers (must be mapped to env vars to be visible here)
             HEADER_VARS="$(printenv | cut -d= -f1 | grep -E "^${G}_HEADER_" || true)"
 
-            # De-dupe header var names, print discovered header keys for visibility,
-            # and ensure they are set (without printing their values)
             HEADERS_JOINED=""
             if [ -n "${HEADER_VARS:-}" ]; then
+              # Sort and unique
               HEADER_VARS="$(printf '%s\n' "$HEADER_VARS" | sed '/^$/d' | sort -u)"
 
               echo "Discovered header keys for ${G}:"
               printf '%s\n' "$HEADER_VARS" | sed 's/^/  - /'
 
               MISSING_HEADER=false
+              HEADERS_LIST=()
+              
               while IFS= read -r HV; do
                 [ -z "${HV:-}" ] && continue
-                # Only accept valid variable names for indirect expansion
-                if ! [[ "$HV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-                  echo "Ignoring invalid header variable name: ${HV}"
-                  continue
-                fi
+                if ! [[ "$HV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then continue; fi
+                
                 if [ -z "${!HV-}" ]; then
-                  echo "Header var present but value is NOT set: ${HV}"
+                  echo "ERROR: ${HV} is present but empty."
                   MISSING_HEADER=true
+                else
+                  HEADERS_LIST+=("$HV")
                 fi
               done <<< "$HEADER_VARS"
 
               if [ "$MISSING_HEADER" = true ]; then
-                echo "Skipping ${G} because one or more header values are missing."
-                echo "Hint: ensure these are available as env vars (in GitHub by mapping secrets into env; in act by using --env-file or -s)."
+                echo "Skipping ${G} due to missing header values."
                 continue
               fi
 
-              HEADERS_JOINED="$(printf '%s\n' "$HEADER_VARS" | paste -sd, -)"
-            else
-              echo "Discovered header keys for ${G}: (none)"
+              # Join headers with comma
+              HEADERS_JOINED="$(IFS=,; echo "${HEADERS_LIST[*]}")"
             fi
 
-            # Use printf for consistent delimiters
             printf '%s|%s|%s\n' "$NAME" "$URL" "$HEADERS_JOINED" >> dynamic_schemas.list
           done
 
           found=false
           if [ -s dynamic_schemas.list ]; then
             found=true
-            echo "Dynamic schemas discovered (showing delimiters as [|]):"
-            sed -e 's/|/[|]/g' dynamic_schemas.list
+            echo "Dynamic schemas discovered:"
+            cat dynamic_schemas.list
           else
             echo "No dynamic schemas discovered."
           fi
 
           if [ -n "${GITHUB_OUTPUT:-}" ]; then
             echo "found=${found}" >> "$GITHUB_OUTPUT"
-          else
-            echo "GITHUB_OUTPUT is not set; skipping outputs write (act local run)."
-            echo "found=${found}"
           fi
