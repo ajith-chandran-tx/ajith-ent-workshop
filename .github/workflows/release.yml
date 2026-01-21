@@ -22,6 +22,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug - print all env (values) + redact secrets (keys only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          redact_key() {
+            local k="$1"
+            # Common secret-ish patterns + your known secrets
+            if [[ "$k" =~ (SECRET|TOKEN|PASSWORD|PASS|KEY|PRIVATE|CREDENTIAL|AUTH) ]] \
+               || [[ "$k" == "APOLLO_KEY" ]] \
+               || [[ "$k" == "APOLLO_GRAPH_REF" ]] \
+               || [[ "$k" =~ ^S[0-9]+_HEADER_ ]]; then
+              return 0
+            fi
+            return 1
+          }
+
+          # Print keys sorted; for "secret-like" keys, print only the key.
+          while IFS= read -r k; do
+            v="${!k-}"
+            printf '%s=%s\n' "$k" "$v"
+          done < <(compgen -e | sort)
+
       - name: Discover Dynamic Schemas from Environment
         id: discover_dynamic
         shell: bash
