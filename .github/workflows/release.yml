@@ -26,6 +26,7 @@ jobs:
       - name: Debug - print all env (values) + redact secrets (keys only)
         shell: bash
         run: |
+          env | sort
           set -euo pipefail
 
           redact_key() {
