@@ -7,6 +7,7 @@ on:
         description: "Select environment (dev/test/preprod/prod)"
         required: true
         default: "dev"
+        type: environment
 permissions:
   contents: write
   pull-requests: write
