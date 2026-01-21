@@ -15,7 +15,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: dev
 
     steps:
       - name: Checkout Code
@@ -27,6 +27,7 @@ jobs:
         shell: bash
         run: |
           env | sort
+          secrets | sort
           set -euo pipefail
 
           redact_key() {
