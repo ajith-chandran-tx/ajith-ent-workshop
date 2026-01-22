@@ -39,6 +39,8 @@ jobs:
       APOLLO_GRAPH_REF: ${{ secrets.APOLLO_GRAPH_REF }}
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Audit - Effective Environment Variables (Non-Secrets)
         shell: bash
         run: |
@@ -134,7 +136,7 @@ jobs:
           if [ "$ADDED" -gt 0 ] || [ -d "$TEMP_WORKSPACE" ]; then
             echo "Committing $ADDED new schema(s) and workspace artifacts..."
             git commit -m "Add introspected schemas and validation artifacts to release branch"
-            
+          
             # Push changes to the newly created release branch
             # Note: The branch was created locally in the previous step.
             # We need to set upstream if it doesn't exist remotely (handled by -u or checking first).
@@ -148,17 +150,17 @@ jobs:
         # Push the branch if it wasn't pushed in the previous step (e.g. no new schemas)
         # This creates the remote branch empty if nothing changed.
         run: |
-           set -euo pipefail
-           export GIT_TERMINAL_PROMPT=0
-
-           # Check if branch exists on remote
-           BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
-           if ! git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
-              echo "Pushing new release branch $BRANCH_NAME to origin..."
-              git push -u origin HEAD || echo "Push failed (expected in act/local if no creds)."
-           else
-              echo "Branch $BRANCH_NAME already exists on remote."
-           fi
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          
+          # Check if branch exists on remote
+          BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
+          if ! git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
+             echo "Pushing new release branch $BRANCH_NAME to origin..."
+             git push -u origin HEAD || echo "Push failed (expected in act/local if no creds)."
+          else
+             echo "Branch $BRANCH_NAME already exists on remote."
+          fi
 
 
       - name: Upload Release Branch Artifact
