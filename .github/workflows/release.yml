@@ -23,6 +23,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    outputs:
+      branch_name: ${{ steps.create_branch.outputs.branch_name }}
 
     env:
       # Dump contexts to JSON strings for parsing
@@ -176,3 +178,15 @@ jobs:
           gh workflow run publish.yml \
             -f branch_name=${{ steps.create_branch.outputs.branch_name }} \
             -f source_run_id=${{ github.run_id }}
+  
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    # This links the job to the Environment configured in Settings
+    # The job will PAUSE here until approved in the GitHub UI
+    environment: dev
+
+    steps:
+      - name: Checkout the Update Branch
+        run: |
+          echo "${{ needs.release.outputs.branch_name }}"
