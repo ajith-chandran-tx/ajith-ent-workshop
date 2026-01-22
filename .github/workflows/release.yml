@@ -3,24 +3,40 @@ name: Audit Environment Configuration
 on:
   workflow_dispatch:
     inputs:
-      # 1. NATIVE DROPDOWN: Generates a list of environments from your repo settings
       environment:
-        description: "Target Environment to Audit"
+        description: "Select environment (dev/test/preprod/prod)"
         required: true
+        default: "dev"
         type: environment
+      check_keywords:
+        description: "Error keywords to search for (pipe-separated). Edit to add/remove."
+        required: true
+        default: "FAILED|FAIL|ERROR"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
-  audit-config:
+  release:
     runs-on: ubuntu-latest
-    # 2. DYNAMIC BINDING: Binds the job to the selected environment
     environment: ${{ inputs.environment }}
 
     env:
       # Dump contexts to JSON strings for parsing
-      # 'vars' = Plaintext variables (Safe to view values)
-      # 'secrets' = Encrypted secrets (Values masked as ***)
       VARS_JSON: ${{ toJSON(vars) }}
       SECRETS_JSON: ${{ toJSON(secrets) }}
+
+      # Configuration
+      CHECK_KEYWORDS: ${{ inputs.check_keywords }}
+      SCHEMAS_ROOT_PATH: "apollo-router/schemas2"
+      TEMP_WORKSPACE: "github_workspace"
+      ENV_NAME: ${{ inputs.environment }}
+
+      # Apollo configuration
+      APOLLO_KEY: ${{ secrets.APOLLO_KEY }}
+      APOLLO_GRAPH_REF: ${{ secrets.APOLLO_GRAPH_REF }}
 
     steps:
       - name: Audit - Effective Environment Variables (Non-Secrets)
@@ -45,3 +61,108 @@ jobs:
           echo "$SECRETS_JSON" | jq -r 'keys[]' | sort | while read -r key; do
             echo "[SECRET] $key"
           done
+      - name: Create Release Branch
+        id: create_branch
+        run: |
+          set -euo pipefail
+
+          TIMESTAMP=$(date +"%m%d%y-%H%M%S")
+          BASE_BRANCH="${GITHUB_REF_NAME}"
+          BRANCH="${ENV_NAME}_release-${TIMESTAMP}"
+
+          echo "Base branch is $BASE_BRANCH"
+          echo "Creating release branch $BRANCH from $BASE_BRANCH"
+
+          # We are already on the commit that triggered the workflow (via actions/checkout)
+          # Creating a branch here is a local operation.
+          git checkout -b "$BRANCH"
+
+          echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Created release branch $BRANCH locally."
+
+      - name: Add Introspected Schemas to Release Branch
+        # Removed 'if' condition to ensure release-branch.txt is always committed
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+
+
+          # Ensure git user is configured for this step (persisted from previous step, but safe to re-apply)
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          # create the release-branch.txt inside TEMP_WORKSPACE so it gets committed
+          BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
+          # Ensure TEMP_WORKSPACE exists (it should, but safety first)
+          mkdir -p "$TEMP_WORKSPACE"
+          echo "$BRANCH_NAME" > "$TEMP_WORKSPACE/release-branch.txt"
+
+          ADDED=0
+          if [ -f "$TEMP_WORKSPACE/dynamic_schemas.list" ]; then
+            while IFS='|' read -r NAME URL HEADER_LIST; do
+              [ -z "${NAME:-}" ] && continue
+
+              TARGET_DIR="${SCHEMAS_ROOT_PATH}/${NAME}"
+              TARGET_FILE="${TARGET_DIR}/schema.graphqls"
+              SRC="$TEMP_WORKSPACE/introspected/${NAME}.graphqls"
+
+              if [ ! -f "$SRC" ]; then
+                echo "No introspected schema for $NAME"
+                continue
+              fi
+
+              # Check if directory exists; if not, creates it
+              mkdir -p "$TARGET_DIR"
+
+              # Check if the schema file already exists in the repo
+              if [ -f "$TARGET_FILE" ]; then
+                echo "Static schema already exists for $NAME at $TARGET_FILE. Keeping existing file."
+              else
+                echo "Adding NEW introspected schema for $NAME to $TARGET_FILE"
+                cp "$SRC" "$TARGET_FILE"
+                git add -f "$TARGET_FILE"
+                ADDED=$((ADDED+1))
+              fi
+            done < "$TEMP_WORKSPACE/dynamic_schemas.list"
+          fi
+
+          # Add the TEMP_WORKSPACE directory to git so artifacts are committed
+          if [ -d "$TEMP_WORKSPACE" ]; then
+            git add "$TEMP_WORKSPACE"
+          fi
+
+          if [ "$ADDED" -gt 0 ] || [ -d "$TEMP_WORKSPACE" ]; then
+            echo "Committing $ADDED new schema(s) and workspace artifacts..."
+            git commit -m "Add introspected schemas and validation artifacts to release branch"
+            
+            # Push changes to the newly created release branch
+            # Note: The branch was created locally in the previous step.
+            # We need to set upstream if it doesn't exist remotely (handled by -u or checking first).
+            # Using HEAD ensures we push the current branch.
+            git push -u origin HEAD || echo "Push failed (expected in act/local if no creds)."
+          else
+            echo "No new introspected schemas were added/committed."
+          fi
+
+      - name: Ensure Branch Pushed
+        # Push the branch if it wasn't pushed in the previous step (e.g. no new schemas)
+        # This creates the remote branch empty if nothing changed.
+        run: |
+           set -euo pipefail
+           export GIT_TERMINAL_PROMPT=0
+
+           # Check if branch exists on remote
+           BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
+           if ! git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
+              echo "Pushing new release branch $BRANCH_NAME to origin..."
+              git push -u origin HEAD || echo "Push failed (expected in act/local if no creds)."
+           else
+              echo "Branch $BRANCH_NAME already exists on remote."
+           fi
+
+
+      - name: Upload Release Branch Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-branch-${{ github.event.inputs.environment }}
+          path: github_workspace/release-branch.txt
