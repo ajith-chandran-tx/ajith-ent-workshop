@@ -1,0 +1,29 @@
+name: Publish Schema (CD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'The branch containing the new schema'
+        required: true
+        type: string
+      source_run_id:
+        description: 'ID of the triggering CI run'
+        required: true
+        type: string
+
+jobs:
+  review-and-publish:
+    runs-on: ubuntu-latest
+    # This links the job to the Environment configured in Settings
+    # The job will PAUSE here until approved in the GitHub UI
+    environment: dev 
+    
+    steps:
+      - name: Checkout the Update Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch_name }}
+          fetch-depth: 0
+          run: |
+            echo "${{ inputs.branch_name }}"
