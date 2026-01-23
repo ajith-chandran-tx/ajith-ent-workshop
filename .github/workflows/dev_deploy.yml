@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     outputs:
-      branch_name: ${{ steps.create_branch.outputs.branch_name }}
+      branch_name: ${{ steps.branch.outputs.branch_name }}
 
     env:
       # Dump contexts to JSON strings for parsing
@@ -48,32 +48,19 @@ jobs:
         run: |
           echo "======"
           
-      - name: Check manual sdls created using Apollo Connectors against GraphOS for breaking changes
+      - name: Check manual schemas created using Apollo Connectors against GraphOS for breaking changes
         shell: bash
         run: |
           echo "======"
 
       - name: If all previous steps passes, publish all schemas to Audit Git Branch
         shell: bash
+        id: branch
         run: |
           echo "======"
           BRANCH="Audit Branch"
           echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
           echo "Created release branch $BRANCH locally."
-
-      # - name: Trigger Release Workflow
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   run: |
-      #     BRANCH="Audit Branch"
-      #     echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
-      #     echo "Created release branch $BRANCH locally."
-      #     echo "Triggering deployment from branch: $BRANCH"
-          
-      #     # This executes the second workflow file passing the inputs
-      #     gh workflow run publish.yml \
-      #       -f branch_name=$BRANCH \
-      #       -f source_run_id=${{ github.run_id }}
   
   publish:
     needs: release
@@ -81,6 +68,8 @@ jobs:
     # This links the job to the Environment configured in Settings
     # The job will PAUSE here until approved in the GitHub UI
     environment: dev-publish
+    outputs:
+      graphos_artifact_id: ${{ steps.artifact.outputs.graphos_artifact_id }}
 
     steps:
       - name: Checkout the release branch
@@ -92,18 +81,11 @@ jobs:
           echo "============="
 
       - name: Fetch the GrapohOS Artifact ID
+        id: artifact
         run: |
           ARTIFACT_ID="artifact.api.apollographql.com/omni-graph-63e1859b03aa121c@sha256:aed9b5bbebf6a2b487aa4fb7b0e048178d56013621bafe29bf3fe1eaedf4fe29"
           echo "======"
           echo "graphos_artifact_id=$ARTIFACT_ID" >> $GITHUB_OUTPUT
-
-      # - name: Trigger Deployment Workflow
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   run: |
-      #     gh workflow run publish.yml \
-      #       -f branch_name=$BRANCH \
-      #       -f source_run_id=${{ github.run_id }}
 
   deploy:
     needs: publish
