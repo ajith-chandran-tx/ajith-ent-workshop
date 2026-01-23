@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "======"
 
-      - name: If all previous steps passes, publish all schemas to Audit Git Branch
+      - name: If all previous steps passes, commit and push all schemas to Audit Git Branch
         shell: bash
         id: branch
         run: |
