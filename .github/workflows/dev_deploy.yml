@@ -1,4 +1,4 @@
-name: SuperGraph Deployment - Dev Environment
+name: Dev Deployment
 
 on:
   workflow_dispatch:
