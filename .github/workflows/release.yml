@@ -93,7 +93,7 @@ jobs:
 
       - name: Fetch the GrapohOS Artifact ID
         run: |
-          ARTIFACT_ID="artifact_id=artifact.api.apollographql.com/omni-graph-63e1859b03aa121c@sha256:aed9b5bbebf6a2b487aa4fb7b0e048178d56013621bafe29bf3fe1eaedf4fe29"
+          ARTIFACT_ID="artifact.api.apollographql.com/omni-graph-63e1859b03aa121c@sha256:aed9b5bbebf6a2b487aa4fb7b0e048178d56013621bafe29bf3fe1eaedf4fe29"
           echo "======"
           echo "graphos_artifact_id=$ARTIFACT_ID" >> $GITHUB_OUTPUT
 
@@ -105,6 +105,43 @@ jobs:
       #       -f branch_name=$BRANCH \
       #       -f source_run_id=${{ github.run_id }}
 
-    
-        
-  
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    # This links the job to the Environment configured in Settings
+    # The job will PAUSE here until approved in the GitHub UI
+    environment: dev-deploy
+
+    steps:
+      - name: Cheking out code from release branch
+        run: |
+          echo "Release branch: Release Branch"
+
+      - name: Saving active artifact id to github variable for rollback
+        run: |
+          echo "=========="
+
+      - name: Creating docker container with the GraphOS artifact ID
+        run: |
+          echo "Artifact ID: {{ needs.publish.outputs.graphos_artifact_id }}"
+          echo "============="
+
+      - name: Publish docker container to container registery
+        run: |        
+          echo "======"          
+
+      - name: Trigger deployment
+        run: |        
+          echo "======"   
+
+  rollback:
+    needs: deploy
+    runs-on: ubuntu-latest
+    # This links the job to the Environment configured in Settings
+    # The job will PAUSE here until approved in the GitHub UI
+    environment: dev-rollback
+
+    steps:
+      - name: get previous container and trigger deployment using previous container.
+        run: |
+          echo "====="
