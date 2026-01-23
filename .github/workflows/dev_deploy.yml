@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   release:
+    name: "Check subgraph schemas against Graph OS and create release branch"
     runs-on: ubuntu-latest
     environment: dev
     outputs:
