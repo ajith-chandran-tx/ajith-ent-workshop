@@ -1,13 +1,8 @@
-name: Audit Environment Configuration
+name: SuperGraph Deployment - Dev Environment
 
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Select environment (dev/test/preprod/prod)"
-        required: true
-        default: "dev"
-        type: environment
       check_keywords:
         description: "Error keywords to search for (pipe-separated). Edit to add/remove."
         required: true
@@ -22,7 +17,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: dev
     outputs:
       branch_name: ${{ steps.create_branch.outputs.branch_name }}
 
@@ -35,7 +30,6 @@ jobs:
       CHECK_KEYWORDS: ${{ inputs.check_keywords }}
       SCHEMAS_ROOT_PATH: "apollo-router/schemas2"
       TEMP_WORKSPACE: "github_workspace"
-      ENV_NAME: ${{ inputs.environment }}
 
       # Apollo configuration
       APOLLO_KEY: ${{ secrets.APOLLO_KEY }}
@@ -44,149 +38,73 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Audit - Effective Environment Variables (Non-Secrets)
+      - name: Introspect Subgraphs
         shell: bash
         run: |
-          echo "=== Effective Variables for '${{ inputs.environment }}' ==="
-          echo "(Includes merged Repository and Environment variables)"
-          echo ""
+          echo "======"
           
-          # Use jq to parse the JSON and print Key=Value pairs
-          echo "$VARS_JSON" | jq -r 'to_entries[] | "\(.key) = \(.value)"' | sort
-
-      - name: Audit - Effective Secret Keys (Names Only)
+      - name: Check introspected schemas against GraphOS for breaking changes
         shell: bash
         run: |
-          echo ""
-          echo "=== Effective Secret Keys for '${{ inputs.environment }}' ==="
-          echo "(Values are strictly masked by GitHub, printing names only)"
-          echo ""
+          echo "======"
           
-          # Use jq to extract only the keys (names) from the secrets object
-          echo "$SECRETS_JSON" | jq -r 'keys[]' | sort | while read -r key; do
-            echo "[SECRET] $key"
-          done
-      - name: Create Release Branch
-        id: create_branch
+      - name: Check manual sdls created using Apollo Connectors against GraphOS for breaking changes
+        shell: bash
         run: |
-          set -euo pipefail
+          echo "======"
 
-          TIMESTAMP=$(date +"%m%d%y-%H%M%S")
-          BASE_BRANCH="${GITHUB_REF_NAME}"
-          BRANCH="${ENV_NAME}_release-${TIMESTAMP}"
-
-          echo "Base branch is $BASE_BRANCH"
-          echo "Creating release branch $BRANCH from $BASE_BRANCH"
-
-          # We are already on the commit that triggered the workflow (via actions/checkout)
-          # Creating a branch here is a local operation.
-          git checkout -b "$BRANCH"
-
+      - name: If all previous steps passes, publish all schemas to Audit Git Branch
+        shell: bash
+        run: |
+          echo "======"
+          BRANCH="Audit Branch"
           echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
           echo "Created release branch $BRANCH locally."
 
-      - name: Add Introspected Schemas to Release Branch
-        # Removed 'if' condition to ensure release-branch.txt is always committed
-        run: |
-          set -euo pipefail
-          export GIT_TERMINAL_PROMPT=0
-
-
-          # Ensure git user is configured for this step (persisted from previous step, but safe to re-apply)
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-
-          # create the release-branch.txt inside TEMP_WORKSPACE so it gets committed
-          BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
-          # Ensure TEMP_WORKSPACE exists (it should, but safety first)
-          mkdir -p "$TEMP_WORKSPACE"
-          echo "$BRANCH_NAME" > "$TEMP_WORKSPACE/release-branch.txt"
-
-          ADDED=0
-          if [ -f "$TEMP_WORKSPACE/dynamic_schemas.list" ]; then
-            while IFS='|' read -r NAME URL HEADER_LIST; do
-              [ -z "${NAME:-}" ] && continue
-
-              TARGET_DIR="${SCHEMAS_ROOT_PATH}/${NAME}"
-              TARGET_FILE="${TARGET_DIR}/schema.graphqls"
-              SRC="$TEMP_WORKSPACE/introspected/${NAME}.graphqls"
-
-              if [ ! -f "$SRC" ]; then
-                echo "No introspected schema for $NAME"
-                continue
-              fi
-
-              # Check if directory exists; if not, creates it
-              mkdir -p "$TARGET_DIR"
-
-              # Check if the schema file already exists in the repo
-              if [ -f "$TARGET_FILE" ]; then
-                echo "Static schema already exists for $NAME at $TARGET_FILE. Keeping existing file."
-              else
-                echo "Adding NEW introspected schema for $NAME to $TARGET_FILE"
-                cp "$SRC" "$TARGET_FILE"
-                git add -f "$TARGET_FILE"
-                ADDED=$((ADDED+1))
-              fi
-            done < "$TEMP_WORKSPACE/dynamic_schemas.list"
-          fi
-
-          # Add the TEMP_WORKSPACE directory to git so artifacts are committed
-          if [ -d "$TEMP_WORKSPACE" ]; then
-            git add "$TEMP_WORKSPACE"
-          fi
-
-          if [ "$ADDED" -gt 0 ] || [ -d "$TEMP_WORKSPACE" ]; then
-            echo "Committing $ADDED new schema(s) and workspace artifacts..."
-            git commit -m "Add introspected schemas and validation artifacts to release branch"
+      # - name: Trigger Release Workflow
+      #   env:
+      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   run: |
+      #     BRANCH="Audit Branch"
+      #     echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
+      #     echo "Created release branch $BRANCH locally."
+      #     echo "Triggering deployment from branch: $BRANCH"
           
-            # Push changes to the newly created release branch
-            # Note: The branch was created locally in the previous step.
-            # We need to set upstream if it doesn't exist remotely (handled by -u or checking first).
-            # Using HEAD ensures we push the current branch.
-            git push -u origin HEAD || echo "Push failed (expected in act/local if no creds)."
-          else
-            echo "No new introspected schemas were added/committed."
-          fi
-
-      - name: Ensure Branch Pushed
-        # Push the branch if it wasn't pushed in the previous step (e.g. no new schemas)
-        # This creates the remote branch empty if nothing changed.
-        id: push
-        run: |
-          set -euo pipefail
-          export GIT_TERMINAL_PROMPT=0
-          
-          # Check if branch exists on remote
-          BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
-          if ! git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
-             echo "Pushing new release branch $BRANCH_NAME to origin..."
-             git push -u origin HEAD || echo "Push failed (expected in act/local if no creds)."
-          else
-             echo "Branch $BRANCH_NAME already exists on remote."
-          fi
-
-
-      - name: Trigger CD Workflow
-        if: steps.create_branch.outputs.branch_name != 'none'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Triggering deployment for branch: ${{ steps.create_branch.outputs.branch_name }}"
-          
-          # This executes the second workflow file passing the inputs
-          gh workflow run publish.yml \
-            -f branch_name=${{ steps.create_branch.outputs.branch_name }} \
-            -f source_run_id=${{ github.run_id }}
+      #     # This executes the second workflow file passing the inputs
+      #     gh workflow run publish.yml \
+      #       -f branch_name=$BRANCH \
+      #       -f source_run_id=${{ github.run_id }}
   
   publish:
     needs: release
     runs-on: ubuntu-latest
     # This links the job to the Environment configured in Settings
     # The job will PAUSE here until approved in the GitHub UI
-    environment: dev
+    environment: dev-publish
 
     steps:
-      - name: Checkout the Update Branch
+      - name: Checkout the release branch
         run: |
-          echo "${{ needs.release.outputs.branch_name }}"
+          echo "Release branch: ${{ needs.release.outputs.branch_name }}"
+
+      - name: Publish all subgraph schemas one by one from the release branch
+        run: |
+          echo "============="
+
+      - name: Fetch the GrapohOS Artifact ID
+        run: |
+          ARTIFACT_ID="artifact_id=artifact.api.apollographql.com/omni-graph-63e1859b03aa121c@sha256:aed9b5bbebf6a2b487aa4fb7b0e048178d56013621bafe29bf3fe1eaedf4fe29"
+          echo "======"
+          echo "graphos_artifact_id=$ARTIFACT_ID" >> $GITHUB_OUTPUT
+
+      # - name: Trigger Deployment Workflow
+      #   env:
+      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   run: |
+      #     gh workflow run publish.yml \
+      #       -f branch_name=$BRANCH \
+      #       -f source_run_id=${{ github.run_id }}
+
+    
+        
+  
