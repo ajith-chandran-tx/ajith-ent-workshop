@@ -62,6 +62,16 @@ jobs:
           BRANCH="Audit Branch"
           echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
           echo "Created release branch $BRANCH locally."
+      
+      - name: Generate Approval Checklist
+        run: |
+          echo "### Pre-Deployment Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "**Reviewer: Please verify the following before approving:**" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Breaking changes verified in GraphOS" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Backward compatibility check passed" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Security policies reviewed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> *Copy these items into the approval comment box to confirm.*" >> $GITHUB_STEP_SUMMARY
   
   publish:
     needs: release
