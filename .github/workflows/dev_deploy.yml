@@ -65,7 +65,7 @@ jobs:
       
       - name: Generate Approval Checklist
         run: |
-          echo "### Pre-Deployment Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "### Pre-Publish Checklist" >> $GITHUB_STEP_SUMMARY
           echo "**Reviewer: Please verify the following before approving:**" >> $GITHUB_STEP_SUMMARY
           echo "- [ ] Breaking changes verified in GraphOS" >> $GITHUB_STEP_SUMMARY
           echo "- [ ] Backward compatibility check passed" >> $GITHUB_STEP_SUMMARY
