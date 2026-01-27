@@ -48,5 +48,6 @@ jobs:
           git add .
           git commit -m "Update from main workflow"
           echo "Pushing changes"
-          git push -u origin isolated-branch
+          REPO_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git"
+          git push -u "$REPO_URL" isolated-branch
           echo "Push completed"
