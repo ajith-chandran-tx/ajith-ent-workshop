@@ -33,11 +33,12 @@ jobs:
             git commit --allow-empty -m "root commit"
             git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
           fi
+          cd ..
 
       - name: Copy and Push Files
         run: |
           # Copy your specific files to the isolated folder
-          cp ./specific-file.txt ./target-folder/
+          cp -r ./router ./target-folder/
           
           cd target-folder
           git config user.name "github-actions[bot]"
