@@ -16,6 +16,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Checkout or Create Empty Target Branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TARGET="isolated-branch"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -33,7 +35,7 @@ jobs:
             git init
             git checkout --orphan "$TARGET"
             git commit --allow-empty -m "root commit"
-            # git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
+            git remote add origin https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git
           fi
           cd ..
 
