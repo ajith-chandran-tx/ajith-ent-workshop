@@ -36,6 +36,8 @@ jobs:
           cd ..
 
       - name: Copy and Push Files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Copy your specific files to the isolated folder
           cp -r ./router ./target-folder/
@@ -48,6 +50,6 @@ jobs:
           git add .
           git commit -m "Update from main workflow"
           echo "Pushing changes"
-          REPO_URL="https://x-access-token:${secrets.GITHUB_TOKEN}@://github.com{GITHUB_REPOSITORY}.git"
-          git push -u "https://x-access-token:${secrets.GITHUB_TOKEN}@://github.com{GITHUB_REPOSITORY}.git" isolated-branch
+          REPO_URL="https://x-access-token:${GH_TOKEN}@://github.com${GITHUB_REPOSITORY}.git"
+          git push -u "https://x-access-token:${GITHUB_TOKEN}@://github.com${GITHUB_REPOSITORY}.git" isolated-branch
           echo "Push completed"
