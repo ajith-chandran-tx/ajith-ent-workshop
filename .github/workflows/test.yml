@@ -18,7 +18,7 @@ jobs:
       - name: Checkout or Create Empty Target Branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REMOTE_URL: $(git remote get-url origin)
+          REMOTE_URL: "$(git remote get-url origin)"
         run: |
           TARGET="isolated-branch"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -43,7 +43,7 @@ jobs:
       - name: Copy and Push Files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REMOTE_URL: $(git remote get-url origin)
+          REMOTE_URL: "$(git remote get-url origin)"
         run: |
 
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
