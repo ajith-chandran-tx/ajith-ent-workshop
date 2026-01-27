@@ -18,6 +18,7 @@ jobs:
       - name: Checkout or Create Empty Target Branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REMOTE_URL: $(git remote get-url origin)
         run: |
           TARGET="isolated-branch"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -27,7 +28,7 @@ jobs:
           # Check remote existence
           if git ls-remote --exit-code --heads origin "$TARGET"; then
             # If exists, checkout into a specific folder for isolation
-            git clone --branch "$TARGET" --single-branch ${{ github.server_url }}/${{ github.repository }}.git target-folder
+            git clone --branch "$TARGET" --single-branch "$REMOTE_URL" target-folder
           else
             # If not, create it locally in a new folder
             mkdir target-folder
@@ -35,13 +36,14 @@ jobs:
             git init
             git checkout --orphan "$TARGET"
             git commit --allow-empty -m "root commit"
-            git remote add origin https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git
+            git remote add origin REMOTE_URL
           fi
           cd ..
 
       - name: Copy and Push Files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REMOTE_URL: $(git remote get-url origin)
         run: |
 
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -58,8 +60,7 @@ jobs:
           echo "Adding files and commiting"
           git add .
           git commit -m "Update from main workflow"
-          echo "Pushing changes"
-          # REPO_URL="https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git"
-          # git push -u "https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git" isolated-branch
+          echo "Pushing changes: $REMOTE_URL"
+          # git push -u "$REMOTE_URL" isolated-branch
           git push origin isolated-branch
           echo "Push completed"
