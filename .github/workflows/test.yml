@@ -9,6 +9,8 @@ permissions:
 jobs:
   sync-files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Primary Branch
         uses: actions/checkout@v4
@@ -31,7 +33,7 @@ jobs:
             git init
             git checkout --orphan "$TARGET"
             git commit --allow-empty -m "root commit"
-            git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
+            # git remote add origin ${{ github.server_url }}/${{ github.repository }}.git
           fi
           cd ..
 
@@ -39,6 +41,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config set advice.defaultBranchName false
+          
           # Copy your specific files to the isolated folder
           cp -r ./router ./target-folder/
           
@@ -50,6 +57,7 @@ jobs:
           git add .
           git commit -m "Update from main workflow"
           echo "Pushing changes"
-          REPO_URL="https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git"
-          git push -u "https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git" isolated-branch
+          # REPO_URL="https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git"
+          # git push -u "https://x-access-token:${GH_TOKEN}@://github.com/${GITHUB_REPOSITORY}.git" isolated-branch
+          git push origin isolated-branch
           echo "Push completed"
