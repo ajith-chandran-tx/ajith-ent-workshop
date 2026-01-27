@@ -18,8 +18,8 @@ jobs:
       - name: Checkout or Create Empty Target Branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REMOTE_URL: "$(git remote get-url origin)"
         run: |
+          REMOTE_URL="$(git remote get-url origin)"
           TARGET="isolated-branch"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
@@ -43,9 +43,8 @@ jobs:
       - name: Copy and Push Files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REMOTE_URL: "$(git remote get-url origin)"
         run: |
-
+          REMOTE_URL="$(git remote get-url origin)"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           git config advice.defaultBranchName false
