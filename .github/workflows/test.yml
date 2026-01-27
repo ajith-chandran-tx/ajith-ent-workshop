@@ -41,8 +41,12 @@ jobs:
           cp -r ./router ./target-folder/
           
           cd target-folder
+          echo "$(pwd)"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Adding files and commiting"
           git add .
           git commit -m "Update from main workflow"
+          echo "Pushing changes"
           git push -u origin isolated-branch
+          echo "Push completed"
