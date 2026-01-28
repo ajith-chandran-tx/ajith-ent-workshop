@@ -1,0 +1,72 @@
+name: Push Generated Files to Another Branch
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      # STEP 1: CHECKOUT MAIN (or source branch)
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # IMPORTANT: allows branch creation/pushing
+
+      # STEP 2: RUN YOUR BUILD / GENERATE FILES
+      - name: Generate artifacts
+        run: |
+          mkdir -p output
+          echo "Hello from build" > output/file1.txt
+          echo "More generated content" > output/file2.txt
+
+      # STEP 3: SETUP GIT USER
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # STEP 4: CHECK IF TARGET BRANCH EXISTS
+      - name: Check if target branch exists
+        id: branch-check
+        run: |
+          if git ls-remote --heads origin new-feature-branch | grep new-feature-branch; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # STEP 5: FETCH OR CREATE THE TARGET BRANCH (CLEAN WORKTREE)
+      - name: Checkout or create branch
+        run: |
+          git fetch origin
+
+          if [ "${{ steps.branch-check.outputs.exists }}" == "true" ]; then
+            echo "Branch exists — checking it out"
+            git checkout new-feature-branch
+            git pull origin new-feature-branch
+          else
+            echo "Branch does not exist — creating it"
+            git checkout --orphan new-feature-branch
+            git rm -rf . || true
+          fi
+
+      # STEP 6: COPY FILES FROM PRIOR MAIN CHECKOUT
+      # NOTE: $GITHUB_WORKSPACE is preserved across steps
+      - name: Copy generated artifacts
+        run: |
+          cp -r output/* .
+
+      # STEP 7: COMMIT AND PUSH
+      - name: Commit and push
+        run: |
+          git add .
+          if git diff-index --quiet HEAD; then
+            echo "No changes — skipping commit."
+          else
+            git commit -m "Update generated files"
+            git push origin new-feature-branch --force
+          fi
