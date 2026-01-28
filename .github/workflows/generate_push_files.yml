@@ -56,7 +56,7 @@ jobs:
       # NOTE: $GITHUB_WORKSPACE is preserved across steps
       - name: Copy generated artifacts
         run: |
-          cp -r output/* .
+          cp -rf output/* .
 
       # STEP 7: COMMIT AND PUSH
       - name: Commit and push
