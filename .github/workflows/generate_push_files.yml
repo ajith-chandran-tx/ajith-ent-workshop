@@ -38,7 +38,7 @@ jobs:
           fi
 
           mkdir -p /tmp/generated
-          cp -r output/. /tmp/generated
+          cp -r output /tmp/generated
 
       # STEP 5: FETCH OR CREATE THE TARGET BRANCH (CLEAN WORKTREE)
       - name: Checkout or create branch
