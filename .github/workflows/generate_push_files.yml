@@ -72,3 +72,4 @@ jobs:
             git commit -m "Update generated files"
             git push origin new-feature-branch --force
           fi
+          rm -rf /tmp/generated/output
