@@ -37,11 +37,15 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+          mkdir -p /tmp/generated
+          cp -r output/. /tmp/generated
+
       # STEP 5: FETCH OR CREATE THE TARGET BRANCH (CLEAN WORKTREE)
       - name: Checkout or create branch
         run: |
           git fetch origin
-
+          git reset --hard
+          git clean -fdx
           if [ "${{ steps.branch-check.outputs.exists }}" == "true" ]; then
             echo "Branch exists — checking it out"
             git checkout new-feature-branch
@@ -56,7 +60,7 @@ jobs:
       # NOTE: $GITHUB_WORKSPACE is preserved across steps
       - name: Copy generated artifacts
         run: |
-          cp -rf output/* .
+          cp -rf /tmp/generated/output/* .
 
       # STEP 7: COMMIT AND PUSH
       - name: Commit and push
