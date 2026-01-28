@@ -31,7 +31,7 @@ jobs:
       - name: Check if target branch exists
         id: branch-check
         run: |
-          if git ls-remote --heads origin new-feature-branch | grep new-feature-branch; then
+          if git ls-remote --heads origin new-feature-branch-1 | grep new-feature-branch-1; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -48,11 +48,11 @@ jobs:
           git clean -fdx
           if [ "${{ steps.branch-check.outputs.exists }}" == "true" ]; then
             echo "Branch exists — checking it out"
-            git checkout new-feature-branch
-            git pull origin new-feature-branch
+            git checkout new-feature-branch-1
+            git pull origin new-feature-branch-1
           else
             echo "Branch does not exist — creating it"
-            git checkout --orphan new-feature-branch
+            git checkout --orphan new-feature-branch-1
             git rm -rf . || true
           fi
 
@@ -70,6 +70,6 @@ jobs:
             echo "No changes — skipping commit."
           else
             git commit -m "Update generated files"
-            git push origin new-feature-branch --force
+            git push origin new-feature-branch-1 --force
           fi
           rm -rf /tmp/generated/output
